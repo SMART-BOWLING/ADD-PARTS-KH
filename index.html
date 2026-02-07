@@ -374,7 +374,7 @@
   </div>
 
   <script>
-    // Cloudinary настройки (ДОБАВЬТЕ ЭТО!)
+    // Cloudinary настройки
     const CLOUDINARY_CLOUD_NAME = 'dplmdnxvk';
     const CLOUDINARY_UPLOAD_PRESET = 'ADD_KH_LS';
     const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
@@ -391,6 +391,56 @@
     const previewImage = document.getElementById('previewImage');
     const fileInput = document.getElementById('photo');
     const statusMessage = document.getElementById('statusMessage');
+    
+    // Функция для преобразования Cloudinary URL в нужный формат
+    function formatCloudinaryUrl(originalUrl) {
+      try {
+        console.log('Исходный URL от Cloudinary:', originalUrl);
+        
+        // Разбираем URL на части
+        const url = new URL(originalUrl);
+        
+        // Извлекаем путь после /upload/
+        const pathParts = url.pathname.split('/upload/');
+        
+        if (pathParts.length < 2) {
+          console.warn('Не удалось разобрать Cloudinary URL:', originalUrl);
+          return originalUrl;
+        }
+        
+        // Получаем версию (v параметр) из query string
+        const version = url.searchParams.get('v') || '';
+        
+        // Формируем новый путь с трансформациями
+        const newPath = `/upload/f_auto,q_auto,w_800,c_limit${version ? '/v' + version : ''}${pathParts[1]}`;
+        
+        // Собираем новый URL
+        const newUrl = `https://${url.hostname}${newPath}`;
+        
+        console.log('Сформированный URL:', newUrl);
+        return newUrl;
+      } catch (error) {
+        console.error('Ошибка при форматировании URL:', error);
+        return originalUrl;
+      }
+    }
+    
+    // Альтернативный метод: извлекаем public_id и строим URL заново
+    function formatCloudinaryUrlAlternative(cloudinaryResult) {
+      try {
+        const publicId = cloudinaryResult.public_id;
+        const version = cloudinaryResult.version;
+        
+        // Строим URL в нужном формате
+        const formattedUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_800,c_limit${version ? '/v' + version : ''}/${publicId}`;
+        
+        console.log('Альтернативный метод - сформированный URL:', formattedUrl);
+        return formattedUrl;
+      } catch (error) {
+        console.error('Ошибка альтернативного метода:', error);
+        return cloudinaryResult.secure_url;
+      }
+    }
     
     // Предпросмотр изображения
     fileInput.addEventListener('change', function(e) {
@@ -461,7 +511,7 @@
         try {
           const base64Data = evt.target.result;
           
-          // Шаг 1: Загружаем изображение в Cloudinary (как в старом коде!)
+          // Шаг 1: Загружаем изображение в Cloudinary
           loaderMessage.textContent = 'Загрузка в Cloudinary...';
           
           const timestamp = Math.floor(Date.now() / 1000);
@@ -491,18 +541,28 @@
             throw new Error(`Cloudinary: ${cloudinaryResult.error.message}`);
           }
           
-          // Получаем ссылку Cloudinary
-          const cloudinaryUrl = cloudinaryResult.secure_url;
-          console.log('Cloudinary URL получен:', cloudinaryUrl);
+          // Получаем и форматируем ссылку Cloudinary
+          const originalUrl = cloudinaryResult.secure_url;
+          console.log('Оригинальный Cloudinary URL:', originalUrl);
+          
+          // Пробуем оба метода форматирования
+          let formattedUrl = formatCloudinaryUrl(originalUrl);
+          
+          // Если первый метод не сработал, пробуем альтернативный
+          if (formattedUrl === originalUrl) {
+            formattedUrl = formatCloudinaryUrlAlternative(cloudinaryResult);
+          }
+          
+          console.log('Форматированный Cloudinary URL:', formattedUrl);
           
           // Шаг 2: Отправляем данные в Google Sheets
           loaderMessage.textContent = 'Сохранение данных...';
           
-          // Отправляем ОБЕ ссылки: cloudinaryUrl и base64Data
+          // Отправляем форматированную ссылку и base64
           const formData = new FormData();
           formData.append('number', number);
           formData.append('qty', qty);
-          formData.append('imageUrl', cloudinaryUrl);  // Cloudinary ссылка для колонки D
+          formData.append('imageUrl', formattedUrl);  // Форматированная Cloudinary ссылка для колонки D
           formData.append('base64', base64Data);       // Base64 для ImgBB (колонка F)
           
           const response = await fetch(GAS_URL, {
@@ -525,8 +585,7 @@
               `✅ Данные сохранены!\n` +
               `Номер: ${number}\n` +
               `Количество: ${qty}\n` +
-              `Cloudinary: загружено\n` +
-              `ImgBB: ${result.imgbbUrl ? 'загружено' : 'не загружено'}`,
+              `Ссылка: ${formattedUrl ? 'создана' : 'ошибка'}`,
               'success'
             );
             
@@ -538,7 +597,8 @@
             document.getElementById('number').focus();
             
             // Показываем ссылки в консоли для отладки
-            console.log('✅ Cloudinary URL (колонка D):', cloudinaryUrl);
+            console.log('✅ Форматированный Cloudinary URL (колонка D):', formattedUrl);
+            console.log('✅ Исходный Cloudinary URL:', originalUrl);
             console.log('✅ ImgBB URL (колонка F):', result.imgbbUrl);
             
           } else {
