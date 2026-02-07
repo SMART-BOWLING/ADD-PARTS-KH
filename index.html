@@ -348,7 +348,7 @@
 
         <div class="form-group">
           <label for="qty">Количество</label>
-          <input type="number" id="qty" min="" value="" required>
+          <input type="number" id="qty" min="1" value="" required>
         </div>
 
         <div class="form-group">
@@ -369,18 +369,18 @@
   <div class="loader" id="loader">
     <div class="loader-content">
       <div class="spinner"></div>
-      <div class="loader-text" id="loaderMessage">Загрузка в Cloudinary...</div>
+      <div class="loader-text" id="loaderMessage">Загрузка...</div>
     </div>
   </div>
 
   <script>
-    // Cloudinary настройки
+    // Cloudinary настройки (ДОБАВЬТЕ ЭТО!)
     const CLOUDINARY_CLOUD_NAME = 'dplmdnxvk';
     const CLOUDINARY_UPLOAD_PRESET = 'ADD_KH_LS';
-    const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
+    const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
     
     // Google Apps Script URL
-    const GAS_URL = 'https://script.google.com/macros/s/AKfycbyfUz0zcKlmZ4XzbIR73wuUt_XIYo9rw-sVmOYGmpcKR7Wab8Bx1_WKS8ms9KWnPrPobQ/exec';
+    const GAS_URL = 'https://script.google.com/macros/s/AKfycbxp7gZIWC10tNRQBr3_6EBHhthX7gASQs7XcU-nWU2eMVJWL4lAeWfIlUpjhb5_oTxdkw/exec';
     
     // Элементы DOM
     const form = document.getElementById('form');
@@ -459,26 +459,25 @@
       
       reader.onload = async function(evt) {
         try {
-          const dataUrl = evt.target.result;
+          const base64Data = evt.target.result;
           
-          // Шаг 1: Загружаем изображение в Cloudinary
+          // Шаг 1: Загружаем изображение в Cloudinary (как в старом коде!)
           loaderMessage.textContent = 'Загрузка в Cloudinary...';
           
           const timestamp = Math.floor(Date.now() / 1000);
           const publicId = 'KH_part_' + number.replace(/[^\w]/g, '_') + '_' + timestamp;
           
           // Создаем FormData для Cloudinary
-          const formData = new FormData();
-          formData.append('file', dataUrl);
-          formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-          formData.append('public_id', publicId);
-          formData.append('folder', 'ZIP_KH');
-          formData.append('timestamp', timestamp.toString());
+          const cloudinaryFormData = new FormData();
+          cloudinaryFormData.append('file', base64Data);
+          cloudinaryFormData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+          cloudinaryFormData.append('public_id', publicId);
+          cloudinaryFormData.append('folder', 'ZIP_KH');
           
           // Отправляем в Cloudinary
           const cloudinaryResponse = await fetch(CLOUDINARY_UPLOAD_URL, {
             method: 'POST',
-            body: formData
+            body: cloudinaryFormData
           });
           
           if (!cloudinaryResponse.ok) {
@@ -492,23 +491,44 @@
             throw new Error(`Cloudinary: ${cloudinaryResult.error.message}`);
           }
           
-          const imageUrl =
-  `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/` +
-  `f_auto,q_auto,w_800,c_limit/${cloudinaryResult.public_id}`;
-
+          // Получаем ссылку Cloudinary
+          const cloudinaryUrl = cloudinaryResult.secure_url;
+          console.log('Cloudinary URL получен:', cloudinaryUrl);
           
-          // Шаг 2: Отправляем данные в Google Sheets через JSONP
+          // Шаг 2: Отправляем данные в Google Sheets
           loaderMessage.textContent = 'Сохранение данных...';
           
-          // Используем JSONP для обхода CORS
-          const jsonpResult = await saveViaJsonp(number, qty, imageUrl);
+          // Отправляем ОБЕ ссылки: cloudinaryUrl и base64Data
+          const formData = new FormData();
+          formData.append('number', number);
+          formData.append('qty', qty);
+          formData.append('imageUrl', cloudinaryUrl);  // Cloudinary ссылка для колонки D
+          formData.append('base64', base64Data);       // Base64 для ImgBB (колонка F)
+          
+          const response = await fetch(GAS_URL, {
+            method: 'POST',
+            body: formData
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Ошибка сети: ${response.status}`);
+          }
+          
+          const result = await response.json();
           
           // Скрываем индикатор загрузки
           loader.style.display = 'none';
           submitBtn.disabled = false;
           
-          if (jsonpResult.result === 'success') {
-            showMessage(`✅ Данные сохранены! Номер: ${number}, Количество: ${qty}`, 'success');
+          if (result.result === 'success') {
+            showMessage(
+              `✅ Данные сохранены!\n` +
+              `Номер: ${number}\n` +
+              `Количество: ${qty}\n` +
+              `Cloudinary: загружено\n` +
+              `ImgBB: ${result.imgbbUrl ? 'загружено' : 'не загружено'}`,
+              'success'
+            );
             
             // Сбрасываем форму
             document.getElementById('form').reset();
@@ -516,8 +536,13 @@
             
             // Автофокус на первом поле
             document.getElementById('number').focus();
+            
+            // Показываем ссылки в консоли для отладки
+            console.log('✅ Cloudinary URL (колонка D):', cloudinaryUrl);
+            console.log('✅ ImgBB URL (колонка F):', result.imgbbUrl);
+            
           } else {
-            throw new Error(jsonpResult.message || 'Ошибка сохранения');
+            throw new Error(result.message || 'Ошибка сохранения');
           }
           
         } catch (error) {
@@ -527,6 +552,30 @@
           
           console.error('Ошибка:', error);
           showMessage(`❌ ${error.message}`, 'error');
+          
+          // Пробуем альтернативный метод через JSONP
+          try {
+            console.log('Пробуем альтернативный метод...');
+            loaderMessage.textContent = 'Попытка альтернативного сохранения...';
+            loader.style.display = 'flex';
+            
+            // Пытаемся через JSONP
+            const jsonpResult = await saveViaJsonp(number, qty, base64Data);
+            
+            loader.style.display = 'none';
+            submitBtn.disabled = false;
+            
+            if (jsonpResult.result === 'success') {
+              showMessage(`✅ Данные сохранены (через резервный метод)!`, 'success');
+              document.getElementById('form').reset();
+              imagePreview.style.display = 'none';
+              document.getElementById('number').focus();
+            }
+          } catch (jsonpError) {
+            loader.style.display = 'none';
+            submitBtn.disabled = false;
+            console.error('Резервный метод тоже не сработал:', jsonpError);
+          }
         }
       };
       
@@ -539,8 +588,8 @@
       reader.readAsDataURL(file);
     });
     
-    // Функция для сохранения через JSONP
-    function saveViaJsonp(number, qty, imageUrl) {
+    // Функция для сохранения через JSONP (резервный метод)
+    function saveViaJsonp(number, qty, base64Data) {
       return new Promise((resolve, reject) => {
         // Создаем уникальное имя callback функции
         const callbackName = 'googleSheetsCallback_' + Date.now() + '_' + Math.random().toString(36).substr(2);
@@ -558,25 +607,24 @@
           }
         };
         
-        // Создаем URL с параметрами
+        // Отправляем через URL параметры
         const params = new URLSearchParams({
           callback: callbackName,
           number: number,
           qty: qty,
-          imageUrl: imageUrl,
-          timestamp: Date.now()
+          base64: encodeURIComponent(base64Data)
         });
         
         // Создаем и добавляем script тег
         const script = document.createElement('script');
         script.src = `${GAS_URL}?${params.toString()}`;
         
-        // Таймаут на случай если скрипт не загрузится
+        // Таймаут
         const timeoutId = setTimeout(() => {
           document.body.removeChild(script);
           delete window[callbackName];
           reject(new Error('Таймаут загрузки данных'));
-        }, 10000);
+        }, 15000);
         
         script.onload = () => clearTimeout(timeoutId);
         script.onerror = () => {
@@ -595,4 +643,4 @@
     });
   </script>
 </body>
-</html> 
+</html>
