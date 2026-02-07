@@ -392,7 +392,7 @@
     const fileInput = document.getElementById('photo');
     const statusMessage = document.getElementById('statusMessage');
     
-    // Функция для преобразования Cloudinary URL в нужный формат
+    // Функция для преобразования Cloudinary URL в нужный формат - ИСПРАВЛЕНА
     function formatCloudinaryUrl(originalUrl) {
       try {
         console.log('Исходный URL от Cloudinary:', originalUrl);
@@ -414,8 +414,8 @@
         // Формируем новый путь с трансформациями
         const newPath = `/upload/f_auto,q_auto,w_800,c_limit${version ? '/v' + version : ''}${pathParts[1]}`;
         
-        // Собираем новый URL
-        const newUrl = `https://${url.hostname}${newPath}`;
+        // Собираем новый URL - ВАЖНО: сохраняем хостнейм
+        const newUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image${newPath}`;
         
         console.log('Сформированный URL:', newUrl);
         return newUrl;
@@ -425,19 +425,51 @@
       }
     }
     
-    // Альтернативный метод: извлекаем public_id и строим URL заново
+    // Альтернативный метод: извлекаем public_id и строим URL заново - ИСПРАВЛЕН
     function formatCloudinaryUrlAlternative(cloudinaryResult) {
       try {
         const publicId = cloudinaryResult.public_id;
         const version = cloudinaryResult.version;
         
-        // Строим URL в нужном формате
-        const formattedUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_800,c_limit${version ? '/v' + version : ''}/${publicId}`;
+        // Строим URL в нужном формате - ПРАВИЛЬНЫЙ формат
+        let formattedUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_800,c_limit`;
+        
+        // Добавляем версию, если она есть
+        if (version) {
+          formattedUrl += `/v${version}`;
+        }
+        
+        // Добавляем public_id
+        formattedUrl += `/${publicId}`;
+        
+        // Добавляем расширение .jpg если его нет
+        if (!formattedUrl.endsWith('.jpg') && !formattedUrl.endsWith('.jpeg') && 
+            !formattedUrl.endsWith('.png') && !formattedUrl.endsWith('.gif')) {
+          formattedUrl += '.jpg';
+        }
         
         console.log('Альтернативный метод - сформированный URL:', formattedUrl);
         return formattedUrl;
       } catch (error) {
         console.error('Ошибка альтернативного метода:', error);
+        return cloudinaryResult.secure_url;
+      }
+    }
+    
+    // Третий метод: простой и надежный
+    function formatCloudinaryUrlSimple(cloudinaryResult) {
+      try {
+        // Берем public_id из результата
+        const publicId = cloudinaryResult.public_id;
+        const version = cloudinaryResult.version;
+        
+        // Просто строим URL по шаблону
+        const formattedUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_800,c_limit${version ? '/v' + version : ''}/${publicId}.jpg`;
+        
+        console.log('Простой метод - сформированный URL:', formattedUrl);
+        return formattedUrl;
+      } catch (error) {
+        console.error('Ошибка простого метода:', error);
         return cloudinaryResult.secure_url;
       }
     }
@@ -541,19 +573,17 @@
             throw new Error(`Cloudinary: ${cloudinaryResult.error.message}`);
           }
           
-          // Получаем и форматируем ссылку Cloudinary
-          const originalUrl = cloudinaryResult.secure_url;
-          console.log('Оригинальный Cloudinary URL:', originalUrl);
+          console.log('Cloudinary результат:', cloudinaryResult);
           
-          // Пробуем оба метода форматирования
-          let formattedUrl = formatCloudinaryUrl(originalUrl);
-          
-          // Если первый метод не сработал, пробуем альтернативный
-          if (formattedUrl === originalUrl) {
-            formattedUrl = formatCloudinaryUrlAlternative(cloudinaryResult);
-          }
+          // Используем простой метод для гарантированного результата
+          const formattedUrl = formatCloudinaryUrlSimple(cloudinaryResult);
           
           console.log('Форматированный Cloudinary URL:', formattedUrl);
+          
+          // Проверяем что URL правильный
+          if (!formattedUrl.includes('res.cloudinary.com')) {
+            throw new Error('Неправильный формат Cloudinary URL');
+          }
           
           // Шаг 2: Отправляем данные в Google Sheets
           loaderMessage.textContent = 'Сохранение данных...';
@@ -585,7 +615,7 @@
               `✅ Данные сохранены!\n` +
               `Номер: ${number}\n` +
               `Количество: ${qty}\n` +
-              `Ссылка: ${formattedUrl ? 'создана' : 'ошибка'}`,
+              `Ссылка: создана`,
               'success'
             );
             
@@ -598,8 +628,7 @@
             
             // Показываем ссылки в консоли для отладки
             console.log('✅ Форматированный Cloudinary URL (колонка D):', formattedUrl);
-            console.log('✅ Исходный Cloudinary URL:', originalUrl);
-            console.log('✅ ImgBB URL (колонка F):', result.imgbbUrl);
+            console.log('✅ Исходный Cloudinary URL:', cloudinaryResult.secure_url);
             
           } else {
             throw new Error(result.message || 'Ошибка сохранения');
@@ -612,30 +641,6 @@
           
           console.error('Ошибка:', error);
           showMessage(`❌ ${error.message}`, 'error');
-          
-          // Пробуем альтернативный метод через JSONP
-          try {
-            console.log('Пробуем альтернативный метод...');
-            loaderMessage.textContent = 'Попытка альтернативного сохранения...';
-            loader.style.display = 'flex';
-            
-            // Пытаемся через JSONP
-            const jsonpResult = await saveViaJsonp(number, qty, base64Data);
-            
-            loader.style.display = 'none';
-            submitBtn.disabled = false;
-            
-            if (jsonpResult.result === 'success') {
-              showMessage(`✅ Данные сохранены (через резервный метод)!`, 'success');
-              document.getElementById('form').reset();
-              imagePreview.style.display = 'none';
-              document.getElementById('number').focus();
-            }
-          } catch (jsonpError) {
-            loader.style.display = 'none';
-            submitBtn.disabled = false;
-            console.error('Резервный метод тоже не сработал:', jsonpError);
-          }
         }
       };
       
@@ -647,55 +652,6 @@
       
       reader.readAsDataURL(file);
     });
-    
-    // Функция для сохранения через JSONP (резервный метод)
-    function saveViaJsonp(number, qty, base64Data) {
-      return new Promise((resolve, reject) => {
-        // Создаем уникальное имя callback функции
-        const callbackName = 'googleSheetsCallback_' + Date.now() + '_' + Math.random().toString(36).substr(2);
-        
-        // Определяем callback функцию
-        window[callbackName] = function(response) {
-          // Очищаем
-          delete window[callbackName];
-          document.body.removeChild(script);
-          
-          if (response && response.result === 'success') {
-            resolve(response);
-          } else {
-            reject(new Error(response ? response.message : 'Неизвестная ошибка'));
-          }
-        };
-        
-        // Отправляем через URL параметры
-        const params = new URLSearchParams({
-          callback: callbackName,
-          number: number,
-          qty: qty,
-          base64: encodeURIComponent(base64Data)
-        });
-        
-        // Создаем и добавляем script тег
-        const script = document.createElement('script');
-        script.src = `${GAS_URL}?${params.toString()}`;
-        
-        // Таймаут
-        const timeoutId = setTimeout(() => {
-          document.body.removeChild(script);
-          delete window[callbackName];
-          reject(new Error('Таймаут загрузки данных'));
-        }, 15000);
-        
-        script.onload = () => clearTimeout(timeoutId);
-        script.onerror = () => {
-          clearTimeout(timeoutId);
-          delete window[callbackName];
-          reject(new Error('Ошибка загрузки скрипта'));
-        };
-        
-        document.body.appendChild(script);
-      });
-    }
     
     // Улучшение UX: фокус на первом поле при загрузке
     window.addEventListener('DOMContentLoaded', () => {
