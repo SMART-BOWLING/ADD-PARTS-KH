@@ -611,15 +611,14 @@
         if (result.result === 'success') {
           if (result.details && result.details.existed) {
             // Деталь существовала - только количество обновлено
-            showMessage(
-              `✅ КОЛИЧЕСТВО ОБНОВЛЕНО!\n\n` +
-              `Номер детали: ${number}\n` +
-              `Было: ${result.details.oldQty}\n` +
-              `Добавлено: ${result.details.addedQty}\n` +
-              `Стало: ${result.details.newQty}\n\n` +
-              `📸 Фото: осталось без изменений (старое фото сохранено)`,
-              'success'
-            );
+showMessage(
+  `✅ КОЛИЧЕСТВО ОБНОВЛЕНО!\n\n` +
+  `Номер детали: ${number}\n` +
+  `Было: ${result.details.oldQty}\n` +
+  `Добавлено: ${result.details.addedQty}\n` +
+  `Стало: ${result.details.newQty}`,
+  'success'
+);
           } else {
             // Новая деталь
             showMessage(
