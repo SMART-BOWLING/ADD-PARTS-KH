@@ -201,7 +201,7 @@
       margin-bottom: 5px;
     }
 
-    /* Сообщения о статусе - теперь не исчезают, пока пользователь не нажмет кнопку закрытия */
+    /* Сообщения о статусе */
     .status-message {
       display: none;
       padding: 12px;
@@ -406,7 +406,7 @@
     const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
     
     // Google Apps Script URL - ВСТАВЬТЕ ВАШ URL ПОСЛЕ ДЕПЛОЯ
-    const GAS_URL = 'https://script.google.com/macros/s/AKfycbzDQGZs3hoi24rlDw73CXm_l8d_1vDP6F5XbRVgH3T--cVgnpptvypsWgGAXQgDsXa48Q/exec';
+    const GAS_URL = 'https://script.google.com/macros/s/AKfycby56d8F21eug36YW3gySQhVta91p7mgWa5mBxG_TBrDx-lBlTqXefDd6A_kKZ_XIh1j3g/exec';
     
     // Элементы DOM
     const form = document.getElementById('form');
@@ -421,7 +421,7 @@
     // Флаг для предотвращения повторной отправки
     let isSubmitting = false;
     
-    // Функция для отображения сообщений (НЕ ИСЧЕЗАЮТ автоматически)
+    // Функция для отображения сообщений
     function showMessage(text, type = 'success') {
       statusMessageDiv.innerHTML = '';
       statusMessageDiv.className = `status-message status-${type}`;
@@ -443,7 +443,7 @@
       statusMessageDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
     
-    // Функция для проверки существования номера детали (через GAS)
+    // Функция для проверки существования номера детали
     async function checkPartNumberExists(partNumber) {
       try {
         const checkFormData = new FormData();
@@ -460,33 +460,55 @@
         }
         
         const result = await response.json();
-        
-        if (result.exists === true) {
-          return true;
-        }
-        
-        return false;
+        return result.exists === true;
       } catch (error) {
         console.error('Ошибка при проверке номера:', error);
-        showMessage(`⚠️ Не удалось проверить уникальность номера: ${error.message}. Возможен дубликат.`, 'warning');
+        showMessage(`⚠️ Не удалось проверить уникальность номера: ${error.message}`, 'warning');
         return false;
       }
     }
     
-    // Функция для преобразования Cloudinary URL
-    function formatCloudinaryUrlSimple(cloudinaryResult) {
-      try {
-        const publicId = cloudinaryResult.public_id;
-        const version = cloudinaryResult.version;
-        
-        const formattedUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_800,c_limit${version ? '/v' + version : ''}/${publicId}.jpg`;
-        
-        console.log('Форматированный URL:', formattedUrl);
-        return formattedUrl;
-      } catch (error) {
-        console.error('Ошибка форматирования URL:', error);
-        return cloudinaryResult.secure_url;
+    // Функция для загрузки фото в Cloudinary
+    async function uploadToCloudinary(file, number) {
+      const base64Data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (evt) => resolve(evt.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      
+      const timestamp = Math.floor(Date.now() / 1000);
+      const safeNumber = number.replace(/[^\w]/g, '_');
+      const publicId = `KH_part_${safeNumber}_${timestamp}`;
+      
+      const cloudinaryFormData = new FormData();
+      cloudinaryFormData.append('file', base64Data);
+      cloudinaryFormData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+      cloudinaryFormData.append('public_id', publicId);
+      cloudinaryFormData.append('folder', 'ZIP_KH');
+      
+      const cloudinaryResponse = await fetch(CLOUDINARY_UPLOAD_URL, {
+        method: 'POST',
+        body: cloudinaryFormData
+      });
+      
+      if (!cloudinaryResponse.ok) {
+        const errorText = await cloudinaryResponse.text();
+        throw new Error(`Ошибка Cloudinary: ${errorText}`);
       }
+      
+      const cloudinaryResult = await cloudinaryResponse.json();
+      
+      if (cloudinaryResult.error) {
+        throw new Error(`Cloudinary: ${cloudinaryResult.error.message}`);
+      }
+      
+      // Форматируем URL
+      const publicId_final = cloudinaryResult.public_id;
+      const version = cloudinaryResult.version;
+      const formattedUrl = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_800,c_limit${version ? '/v' + version : ''}/${publicId_final}.jpg`;
+      
+      return formattedUrl;
     }
     
     // Предпросмотр изображения
@@ -544,60 +566,24 @@
       isSubmitting = true;
       submitBtn.disabled = true;
       loader.style.display = 'flex';
-      loaderMessage.textContent = 'Проверка номера детали...';
       
       try {
-        loaderMessage.textContent = 'Проверка уникальности номера...';
+        // Проверяем, существует ли номер
+        loaderMessage.textContent = 'Проверка номера детали...';
         const exists = await checkPartNumberExists(number);
         
-        // Просто информируем пользователя, но не блокируем отправку
-        if (exists) {
-          console.log(`Номер ${number} уже существует, количество будет добавлено к существующей записи`);
-        }
+        let formattedUrl = null;
         
-        loaderMessage.textContent = 'Загрузка изображения...';
-        const file = fileInput.files[0];
-        
-        const base64Data = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (evt) => resolve(evt.target.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        
-        loaderMessage.textContent = 'Загрузка в Cloudinary...';
-        const timestamp = Math.floor(Date.now() / 1000);
-        const safeNumber = number.replace(/[^\w]/g, '_');
-        const publicId = `KH_part_${safeNumber}_${timestamp}`;
-        
-        const cloudinaryFormData = new FormData();
-        cloudinaryFormData.append('file', base64Data);
-        cloudinaryFormData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-        cloudinaryFormData.append('public_id', publicId);
-        cloudinaryFormData.append('folder', 'ZIP_KH');
-        
-        const cloudinaryResponse = await fetch(CLOUDINARY_UPLOAD_URL, {
-          method: 'POST',
-          body: cloudinaryFormData
-        });
-        
-        if (!cloudinaryResponse.ok) {
-          const errorText = await cloudinaryResponse.text();
-          throw new Error(`Ошибка Cloudinary: ${errorText}`);
-        }
-        
-        const cloudinaryResult = await cloudinaryResponse.json();
-        
-        if (cloudinaryResult.error) {
-          throw new Error(`Cloudinary: ${cloudinaryResult.error.message}`);
-        }
-        
-        console.log('Cloudinary результат:', cloudinaryResult);
-        
-        const formattedUrl = formatCloudinaryUrlSimple(cloudinaryResult);
-        
-        if (!formattedUrl.includes('res.cloudinary.com')) {
-          throw new Error('Неправильный формат Cloudinary URL');
+        // Загружаем фото ТОЛЬКО если это новая деталь
+        if (!exists) {
+          loaderMessage.textContent = 'Загрузка изображения в Cloudinary...';
+          const file = fileInput.files[0];
+          formattedUrl = await uploadToCloudinary(file, number);
+          console.log('Фото загружено для новой детали:', formattedUrl);
+        } else {
+          loaderMessage.textContent = 'Деталь существует, фото не загружается...';
+          console.log(`Номер ${number} уже существует, загрузка фото пропущена`);
+          // Не загружаем фото, оставляем старое
         }
         
         loaderMessage.textContent = 'Сохранение данных...';
@@ -605,7 +591,9 @@
         const formDataToSend = new FormData();
         formDataToSend.append('number', number);
         formDataToSend.append('qty', qty);
-        formDataToSend.append('imageUrl', formattedUrl);
+        if (formattedUrl) {
+          formDataToSend.append('imageUrl', formattedUrl);
+        }
         
         const gasResponse = await fetch(GAS_URL, {
           method: 'POST',
@@ -622,14 +610,14 @@
         
         if (result.result === 'success') {
           if (result.details && result.details.existed) {
-            // Деталь существовала - количество обновлено
+            // Деталь существовала - только количество обновлено
             showMessage(
               `✅ КОЛИЧЕСТВО ОБНОВЛЕНО!\n\n` +
               `Номер детали: ${number}\n` +
               `Было: ${result.details.oldQty}\n` +
               `Добавлено: ${result.details.addedQty}\n` +
-              `Стало: ${result.details.newQty}\n` +
-              `Фото: ${result.details.cloudinaryUrl ? 'обновлено' : 'осталось без изменений'}`,
+              `Стало: ${result.details.newQty}\n\n` +
+              `📸 Фото: осталось без изменений (старое фото сохранено)`,
               'success'
             );
           } else {
@@ -638,7 +626,7 @@
               `✅ НОВАЯ ДЕТАЛЬ ДОБАВЛЕНА!\n\n` +
               `Номер детали: ${number}\n` +
               `Количество: ${qty}\n` +
-              `Фото: загружено`,
+              `📸 Фото: загружено`,
               'success'
             );
           }
@@ -646,10 +634,8 @@
           form.reset();
           imagePreview.style.display = 'none';
           previewImage.src = '';
+          fileInput.value = '';
           document.getElementById('number').focus();
-          
-          console.log('✅ Успешно сохранено. Cloudinary URL (колонка D):', formattedUrl);
-          console.log('✅ Колонка F (резервное фото) НЕ заполнялась');
           
         } else {
           throw new Error(result.message || 'Ошибка сохранения данных');
@@ -679,7 +665,10 @@
     
     window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('number').focus();
-      console.log('✅ Форма готова к работе. Теперь при существующем номере - количество добавляется, а не выдается ошибка!');
+      console.log('✅ Форма готова к работе.');
+      console.log('📌 Логика работы:');
+      console.log('   - Если номер НОВЫЙ: загружается фото + создается запись');
+      console.log('   - Если номер СУЩЕСТВУЕТ: фото НЕ загружается, только добавляется количество');
     });
   </script>
 </body>
