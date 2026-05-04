@@ -551,7 +551,7 @@
         const exists = await checkPartNumberExists(number);
         
         if (exists) {
-          throw new Error(`Деталь с номером "${number}" уже существует в базе данных! Добавление новой записи с таким номером запрещено.`);
+          throw new Error(`Деталь с номером "${number}" уже существует в базе данных!`);
         }
         
         loaderMessage.textContent = 'Загрузка изображения...';
@@ -624,8 +624,7 @@
             `✅ ДАННЫЕ УСПЕШНО СОХРАНЕНЫ!\n\n` +
             `Номер детали: ${number}\n` +
             `Количество: ${qty}\n` +
-            `Фото: загружено\n` +
-            `Резервное фото: не используется (колонка F пуста)`,
+            `Фото: загружено`,
             'success'
           );
           
@@ -648,7 +647,7 @@
         let errorText = error.message;
         
         if (errorText.includes('already exists') || errorText.includes('существует')) {
-          errorText = `❌ ДУБЛИКАТ НОМЕРА!\n\nДеталь с номером "${number}" УЖЕ существует в таблице.\nДобавление новой записи с таким номером запрещено.\nПожалуйста, используйте уникальный номер детали.`;
+          errorText = `❌ ДУБЛИКАТ НОМЕРА!\n\nДеталь с номером "${number}" УЖЕ существует.`;
         } else if (errorText.includes('Cloudinary')) {
           errorText = `❌ ОШИБКА ЗАГРУЗКИ ФОТО:\n${errorText}`;
         } else if (errorText.includes('сеть') || errorText.includes('fetch')) {
