@@ -406,7 +406,7 @@
     const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
     
     // Google Apps Script URL - ВСТАВЬТЕ ВАШ URL ПОСЛЕ ДЕПЛОЯ
-    const GAS_URL = 'https://script.google.com/macros/s/AKfycbyRPyh0sMjnKCuybATI1Wfcrryyez7K3sIrmPJF5pzxmMop_RBQZqKuhrJSjiTWE2HR8g/exec';
+    const GAS_URL = 'https://script.google.com/macros/s/AKfycbzDQGZs3hoi24rlDw73CXm_l8d_1vDP6F5XbRVgH3T--cVgnpptvypsWgGAXQgDsXa48Q/exec';
     
     // Элементы DOM
     const form = document.getElementById('form');
@@ -550,8 +550,9 @@
         loaderMessage.textContent = 'Проверка уникальности номера...';
         const exists = await checkPartNumberExists(number);
         
+        // Просто информируем пользователя, но не блокируем отправку
         if (exists) {
-          throw new Error(`Деталь с номером "${number}" уже существует в базе данных!`);
+          console.log(`Номер ${number} уже существует, количество будет добавлено к существующей записи`);
         }
         
         loaderMessage.textContent = 'Загрузка изображения...';
@@ -620,13 +621,27 @@
         loader.style.display = 'none';
         
         if (result.result === 'success') {
-          showMessage(
-            `✅ ДАННЫЕ УСПЕШНО СОХРАНЕНЫ!\n\n` +
-            `Номер детали: ${number}\n` +
-            `Количество: ${qty}\n` +
-            `Фото: загружено`,
-            'success'
-          );
+          if (result.details && result.details.existed) {
+            // Деталь существовала - количество обновлено
+            showMessage(
+              `✅ КОЛИЧЕСТВО ОБНОВЛЕНО!\n\n` +
+              `Номер детали: ${number}\n` +
+              `Было: ${result.details.oldQty}\n` +
+              `Добавлено: ${result.details.addedQty}\n` +
+              `Стало: ${result.details.newQty}\n` +
+              `Фото: ${result.details.cloudinaryUrl ? 'обновлено' : 'осталось без изменений'}`,
+              'success'
+            );
+          } else {
+            // Новая деталь
+            showMessage(
+              `✅ НОВАЯ ДЕТАЛЬ ДОБАВЛЕНА!\n\n` +
+              `Номер детали: ${number}\n` +
+              `Количество: ${qty}\n` +
+              `Фото: загружено`,
+              'success'
+            );
+          }
           
           form.reset();
           imagePreview.style.display = 'none';
@@ -646,9 +661,7 @@
         
         let errorText = error.message;
         
-        if (errorText.includes('already exists') || errorText.includes('существует')) {
-          errorText = `❌ ДУБЛИКАТ НОМЕРА!\n\nДеталь с номером "${number}" УЖЕ существует.`;
-        } else if (errorText.includes('Cloudinary')) {
+        if (errorText.includes('Cloudinary')) {
           errorText = `❌ ОШИБКА ЗАГРУЗКИ ФОТО:\n${errorText}`;
         } else if (errorText.includes('сеть') || errorText.includes('fetch')) {
           errorText = `❌ ОШИБКА СЕТИ:\n${errorText}\nПроверьте интернет-соединение и повторите попытку.`;
@@ -666,7 +679,7 @@
     
     window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('number').focus();
-      console.log('✅ Форма готова к работе. Проверка дубликатов номеров включена. Колонка F не используется.');
+      console.log('✅ Форма готова к работе. Теперь при существующем номере - количество добавляется, а не выдается ошибка!');
     });
   </script>
 </body>
